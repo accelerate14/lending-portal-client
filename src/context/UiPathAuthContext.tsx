@@ -34,6 +34,8 @@ export const UiPathAuthProvider: React.FC<{ children: React.ReactNode; config: U
     return sessionStorage.getItem('lender_has_logged_out') === 'true';
   });
   const sdkRef = useRef<UiPath | null>(null);
+  const sdkInitializedRef = useRef(false);
+  const oauthCallbackHandledRef = useRef(false);
   
   const getSdk = () => {
     if (!sdkRef.current) {
