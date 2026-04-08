@@ -8,26 +8,6 @@ import {
   Tooltip, ResponsiveContainer, PieChart, Pie, BarChart, Bar, AreaChart, Area
 } from 'recharts';
 
-/* ================= VALID CASE STATUSES ================= */
-const VALID_CASE_STATUSES = [
-  "Draft",
-  "Submitted",
-  "Checking Eligibility",
-  "Eligibility Passed",
-  "Document Review Pending",
-  "Document Reupload Pending",
-  "Document Reuploaded",
-  "Documents Verified",
-  "Underwriter Review Pending",
-  "Approved",
-  "Reject",
-  "Borrower Agreement Sign Pending",
-  "Agreement Signed by Borrower",
-  "Underwriter Agreement Sign Pending",
-  "Agreement Signed by Underwriter",
-  "Closed"
-];
-
 /* ================= TYPES ================= */
 interface LoanRecord {
   Id: string;
@@ -191,10 +171,6 @@ export default function UnderwriterDashboard() {
           const riskLevel = riskByCaseId.get(recordCaseId) || "not_calculated";
 
           const rawStatus = item.caseStatus || item.CaseStatus || "Submitted";
-          // Only include loans with valid case statuses
-          if (!VALID_CASE_STATUSES.includes(rawStatus)) {
-            return null;
-          }
 
           return {
             Id: item.Id,
@@ -247,6 +223,22 @@ export default function UnderwriterDashboard() {
           const allInstances = (instancesResponse as any).items || [];
           setCaseInstancesList(allInstances);
           setCaseInstancesLoading(false);
+          
+          // Map caseId to case instance state for loans table
+          const caseStateMap = new Map<string, string>();
+          
+          allInstances.forEach((instance: any) => {
+            const caseId = instance.caseId;
+            if (caseId) {
+              caseStateMap.set(caseId, instance.latestRunStatus || instance.status || "Unknown");
+            }
+          });
+          
+          // Update loans with case instance state
+          setLoans(prev => prev.map(loan => ({
+            ...loan,
+            caseInstanceState: caseStateMap.get(loan.caseId) || "Not Found"
+          })));
 
           // Helper to format SLA duration units
           const formatSlaDuration = (length?: number, unit?: string): string => {
@@ -899,9 +891,9 @@ export default function UnderwriterDashboard() {
 
         {/* LOAN APPLICATIONS TAB */}
         {activeTab === "loan-applications" && (
-          <div className="space-y-6">
+          <div className="space-y-4">
             {/* Filters */}
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 space-y-4">
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <input
                   type="text"
@@ -911,73 +903,51 @@ export default function UnderwriterDashboard() {
                   className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500"
                 />
                 <select
-                  value={filterField}
+                  value={filterField === "status" ? filterValue : "all"}
                   onChange={(e) => {
-                    setFilterField(e.target.value);
-                    setFilterValue("");
+                    if (e.target.value === "all") {
+                      setFilterField("all");
+                      setFilterValue("");
+                    } else {
+                      setFilterField("status");
+                      setFilterValue(e.target.value);
+                    }
                   }}
                   className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500"
                 >
-                  <option value="all">Filter By Field</option>
-                  <option value="status">Status</option>
-                  <option value="riskLevel">Risk Level</option>
+                  <option value="all">All Statuses</option>
+                  {uniqueStatuses.map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
                 </select>
-                {filterField !== "all" && (
-                  filterField === "status" ? (
-                    <select
-                      value={filterValue}
-                      onChange={(e) => setFilterValue(e.target.value)}
-                      className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500"
-                    >
-                      <option value="">Select Status</option>
-                      {uniqueStatuses.map(s => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <select
-                      value={filterValue}
-                      onChange={(e) => setFilterValue(e.target.value)}
-                      className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500"
-                    >
-                      <option value="">Select Risk Level</option>
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                      <option value="not_calculated">Not Calculated</option>
-                    </select>
-                  )
-                )}
-              </div>
-              <div className="flex justify-between items-center">
-                <div className="flex gap-2">
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value as any)}
-                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                  >
-                    <option value="date">Sort: Date</option>
-                    <option value="amount">Sort: Amount</option>
-                    <option value="status">Sort: Status</option>
-                  </select>
-                  <button
-                    onClick={() => setSortOrder(prev => prev === "asc" ? "desc" : "asc")}
-                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50"
-                  >
-                    {sortOrder === "asc" ? "↑ Asc" : "↓ Desc"}
-                  </button>
-                </div>
+                <select
+                  value={filterField === "riskLevel" ? filterValue : "all"}
+                  onChange={(e) => {
+                    if (e.target.value === "all") {
+                      setFilterField("all");
+                      setFilterValue("");
+                    } else {
+                      setFilterField("riskLevel");
+                      setFilterValue(e.target.value);
+                    }
+                  }}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="all">All Risk Levels</option>
+                  <option value="low">Low Risk</option>
+                  <option value="medium">Medium Risk</option>
+                  <option value="high">High Risk</option>
+                  <option value="not_calculated">Not Calculated</option>
+                </select>
                 <button
                   onClick={() => {
                     setTableSearch("");
                     setFilterField("all");
                     setFilterValue("");
-                    setSortBy("date");
-                    setSortOrder("desc");
                   }}
-                  className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+                  className="text-sm text-indigo-600 hover:text-indigo-700 font-medium border border-indigo-200 rounded-lg px-3 py-2"
                 >
-                  Clear All Filters
+                  Clear Filters
                 </button>
               </div>
             </div>
@@ -985,7 +955,7 @@ export default function UnderwriterDashboard() {
             {/* Loans Table */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
               <div className="p-4 bg-[#2D74B3] flex justify-between items-center">
-                <h2 className="text-white font-bold tracking-wide">Loan Applications</h2>
+                <h2 className="text-white font-bold tracking-wide">Underwriter Worklist</h2>
                 <span className="text-[10px] bg-white/20 text-white px-3 py-1 rounded-full uppercase">
                   {tableFilteredLoans.length} of {loans.length} Records
                 </span>
@@ -996,67 +966,58 @@ export default function UnderwriterDashboard() {
                     <tr className="bg-gray-50 text-[11px] uppercase font-bold text-gray-500 border-b">
                       <th className="p-4">Loan ID</th>
                       <th className="p-4">Borrower</th>
-                      <th className="p-4">Requested On</th>
+                      <th className="p-4">
+                        <button
+                          type="button"
+                          onClick={() => setSortOrder(prev => (prev === "desc" ? "asc" : "desc"))}
+                          className="inline-flex items-center gap-1 uppercase hover:text-indigo-600 transition-colors"
+                        >
+                          REQUESTED ON
+                          <span>{sortOrder === "desc" ? "↓" : "↑"}</span>
+                        </button>
+                      </th>
                       <th className="p-4">Amount</th>
-                      <th className="p-4">Risk</th>
                       <th className="p-4">Status</th>
-                      <th className="p-4">Pending Action</th>
+                      <th className="p-4">Case Instance</th>
                       <th className="p-4 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 text-sm">
-                    {tableFilteredLoans.map((loan) => {
-                      const hasPendingAction = loan.caseStatus === "Underwriter Review Pending" || loan.caseStatus === "Underwriter Agreement Sign Pending";
-                      return (
-                        <tr key={loan.Id} className="hover:bg-blue-50/30 transition-colors">
-                          <td className="p-4 font-mono text-xs text-gray-500">{loan.caseId}</td>
-                          <td className="p-4 text-gray-600">{loan.borrowerName}</td>
-                          <td className="p-4 text-gray-600">{formatDate(loan.CreateTime)}</td>
-                          <td className="p-4 font-bold text-gray-900">${loan.loanAmount.toLocaleString()}</td>
-                          <td className="p-4">
-                            {loan.riskLevel && loan.riskLevel !== "not_calculated" ? (
-                              <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
-                                loan.riskLevel === "high" ? "bg-red-100 text-red-700" :
-                                loan.riskLevel === "medium" ? "bg-amber-100 text-amber-700" :
-                                "bg-green-100 text-green-700"
-                              }`}>
-                                {loan.riskLevel}
-                              </span>
-                            ) : (
-                              <span className="px-2 py-1 rounded text-[10px] font-bold uppercase bg-gray-100 text-gray-500">
-                                Not Calculated
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-4">
-                            <span className="px-2 py-1 rounded text-[10px] font-bold bg-indigo-50 text-indigo-600 border border-indigo-100 uppercase">
-                              {loan.caseStatus}
-                            </span>
-                          </td>
-                          <td className="p-4">
-                            {hasPendingAction ? (
-                              <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold px-2 py-1 rounded-full">
-                                <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></span>
-                                {loan.caseStatus === "Underwriter Review Pending" ? "Review Required" : "Sign Required"}
-                              </span>
-                            ) : (
-                              <span className="text-gray-400 text-xs">—</span>
-                            )}
-                          </td>
-                          <td className="p-4 text-center">
-                            <Button
-                              onClick={() => navigate(`/underwriter/loan-details/${loan.Id}/${loan.userId}/${loan.caseId}`)}
-                              className="bg-black text-white text-[10px] font-bold px-4 py-2 rounded shadow hover:bg-gray-800 transition-all"
-                            >
-                              REVIEW
-                            </Button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {tableFilteredLoans.map((loan) => (
+                      <tr key={loan.Id} className="hover:bg-blue-50/30 transition-colors">
+                        <td className="p-4 font-mono text-xs text-gray-500">{loan.caseId}</td>
+                        <td className="p-4 text-gray-600">{loan.borrowerName}</td>
+                        <td className="p-4 text-gray-600">{formatDate(loan.CreateTime)}</td>
+                        <td className="p-4 font-bold text-gray-900">${loan.loanAmount.toLocaleString()}</td>
+                        <td className="p-4">
+                          <span className="px-2 py-1 rounded text-[10px] font-bold bg-indigo-50 text-indigo-600 border border-indigo-100 uppercase">
+                            {loan.caseStatus}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                            loan.caseInstanceState === "Running" ? "bg-green-50 text-green-600 border border-green-100" :
+                            loan.caseInstanceState === "Completed" ? "bg-blue-50 text-blue-600 border border-blue-100" :
+                            loan.caseInstanceState === "Paused" ? "bg-amber-50 text-amber-600 border border-amber-100" :
+                            loan.caseInstanceState === "Faulted" ? "bg-red-50 text-red-600 border border-red-100" :
+                            "bg-gray-50 text-gray-500 border border-gray-100"
+                          }`}>
+                            {loan.caseInstanceState || "N/A"}
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          <Button
+                            onClick={() => navigate(`/underwriter/loan-details/${loan.Id}/${loan.userId}/${loan.caseId}`)}
+                            className="bg-black text-white text-[10px] font-bold px-4 py-2 rounded shadow hover:bg-gray-800 transition-all"
+                          >
+                            REVIEW
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
                     {tableFilteredLoans.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="p-10 text-center text-gray-400 italic">
+                        <td colSpan={7} className="p-10 text-center text-gray-400 italic">
                           No loan applications found.
                         </td>
                       </tr>
