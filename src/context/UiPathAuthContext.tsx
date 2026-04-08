@@ -159,66 +159,62 @@ export const UiPathAuthProvider: React.FC<{ children: React.ReactNode; config: U
     }
   };
 
-  // Initialize SDK and handle OAuth callback on mount
+  // Handle OAuth callback on mount - DO NOT auto-initialize SDK
   useEffect(() => {
-    // Skip initialization if user has explicitly logged out
+    // Skip if user has explicitly logged out
     if (hasLoggedOut) {
       console.log('User has logged out, skipping re-authentication');
       setIsLoading(false);
       return;
     }
 
-    const sdk = getSdk();
     let mounted = true;
-    let oauthCompleted = false;
+    const sdk = getSdk();
 
-    const initializeAuth = async () => {
-      setIsLoading(true);
-      setError(null);
-
+    const handleAuthCallback = async () => {
       try {
-        // Handle OAuth callback if present (only once)
-        if (sdk.isInOAuthCallback() && !oauthCompleted) {
+        // ONLY handle OAuth callback - check if we're returning from UiPath login
+        if (sdk.isInOAuthCallback() && !oauthCallbackHandledRef.current) {
           console.log('OAuth callback detected, completing OAuth...');
-          oauthCompleted = true;
+          oauthCallbackHandledRef.current = true;
+          setIsLoading(true);
+
           await sdk.completeOAuth();
           console.log('OAuth completed successfully');
-        }
 
-        // Initialize the SDK
-        await sdk.initialize();
-        console.log('SDK initialized, checking authentication...');
-        console.log('sdk.isAuthenticated() result:', sdk.isAuthenticated());
-
-        // Check authentication status
-        if (sdk.isAuthenticated()) {
+          // After OAuth is complete, check authentication and fetch role
           if (mounted) {
-            await fetchLenderRole(sdk);
+            if (sdk.isAuthenticated()) {
+              await fetchLenderRole(sdk);
+            } else {
+              resetAuthState();
+              setError('SDK authentication failed');
+            }
+          }
+
+          if (mounted) {
+            setIsLoading(false);
           }
         } else {
+          // Not in OAuth callback - don't initialize, just finish loading
           if (mounted) {
-            console.log('SDK not authenticated');
-            resetAuthState();
+            setIsLoading(false);
           }
         }
       } catch (err) {
-        // Only log error if it's not the typical OAuth double-invocation issue
         const errorMsg = getAuthErrorMessage(err, 'Authentication failed');
-        if (!errorMsg.includes('invalid_grant') || !oauthCompleted) {
-          console.error('Authentication initialization failed:', err);
+        if (!errorMsg.includes('invalid_grant')) {
+          console.error('Authentication callback error:', err);
         }
         if (mounted) {
           resetAuthState();
-          setError(getAuthErrorMessage(err, 'Authentication failed'));
-        }
-      } finally {
-        if (mounted) {
+          setError(errorMsg);
           setIsLoading(false);
         }
       }
     };
 
-    initializeAuth();
+    handleAuthCallback();
 
     return () => {
       mounted = false;
@@ -238,8 +234,12 @@ export const UiPathAuthProvider: React.FC<{ children: React.ReactNode; config: U
         sessionStorage.setItem('intended_role', role);
       }
 
-      // Initialize the SDK which will trigger OAuth if not authenticated
-      await sdk.initialize();
+      // Initialize the SDK only on login button click
+      if (!sdkInitializedRef.current) {
+        console.log('Initializing SDK on login button click...');
+        await sdk.initialize();
+        sdkInitializedRef.current = true;
+      }
       
       // After initialize, the SDK will handle the OAuth redirect
       // When the callback returns, the useEffect will re-run and handle the callback
@@ -247,6 +247,7 @@ export const UiPathAuthProvider: React.FC<{ children: React.ReactNode; config: U
       console.error('Login failed:', err);
       setError(getAuthErrorMessage(err, 'Login failed'));
       setIsLoading(false);
+      sdkInitializedRef.current = false;
     }
   };
  
@@ -260,6 +261,9 @@ export const UiPathAuthProvider: React.FC<{ children: React.ReactNode; config: U
     setError(null);
     console.log('Setting hasLoggedOut flag to true (persisted in sessionStorage)...');
     setLoggedOutFlag(true);
+    console.log('Resetting SDK flags...');
+    sdkInitializedRef.current = false;
+    oauthCallbackHandledRef.current = false;
     console.log('Creating new SDK instance...');
     sdkRef.current = new UiPath(config);
     console.log('Redirecting to home page...');
